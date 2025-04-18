@@ -1,0 +1,393 @@
+import pandas as pd
+import numpy as np
+
+# Loading the data
+data = pd.read_csv("C:\\Users\\mehek\\OneDrive\\Desktop\\Project 1- STML2\\youth_data.csv")
+print(list(data.columns))
+print("Initial shape:", data.shape)
+
+# Removing duplicate rows
+duplicates = data.duplicated().sum()
+print(f"\nDuplicate rows: {duplicates}")
+if duplicates > 0:
+    data.drop_duplicates(inplace=True)
+    print("\nNew shape of the datsser after removing the duplicates:", data.shape)
+
+# Variables to focus on
+selected_cols = ['IRCIGFM', 'IRALCFM', 'IRMJFM', 'IRSEX', 'NEWRACE2', 'INCOME',
+                 'SCHFELT', 'PRPYRTO', 'PRXYRTO', 'PRIRDUC', 'IRALCEVER', 'IRMJEVER']
+
+# Unique values in variables (before cleaning)
+print("\nUnique values in selected variables (before cleaning):")
+for col in selected_cols:
+    if col in data.columns:
+        print(f"{col} ({len(data[col].unique())} values): {data[col].unique()}")
+
+'''This step is added after the cleaning process for getting results for classification'''
+data['CIG_USED'] = data['IRCIGFM'].apply(
+    lambda x: 0 if x == 91 else 1 if not pd.isna(x) and x not in [93, 94, 97, 98, 99] else np.nan
+)
+'''End of the added step'''
+
+# Handling special codes ( replacing them with NaN)
+special_codes = [
+    91, 93, 94, 97, 98, 99,
+    81, 83, 85, 89,
+    991, 993, 994, 997, 998, 999,
+    981, 983, 985, 989, 9991, 9993, 9994, 9997, 9998, 9999]
+
+for col in ['IRCIGFM', 'IRALCFM', 'IRMJFM', 'IRALCEVER', 'IRMJEVER']:
+    if col in data.columns:
+        data[col] = data[col].replace(special_codes, np.nan)
+
+# Human-readable mapping for categorical variables
+if 'IRSEX' in data.columns:
+    data['IRSEX'] = data['IRSEX'].replace({1: 'Male', 2: 'Female'})
+
+race_map = {
+    1: 'White', 2: 'Black', 3: 'Native American', 4: 'Asian',
+    5: 'Pacific Islander', 6: 'Multiracial', 7: 'Other'
+}
+if 'NEWRACE2' in data.columns:
+    data['NEWRACE2'] = data['NEWRACE2'].replace(race_map)
+
+# Dropping columns with higher amount of missing data
+imp_cols = ['IRCIGFM', 'IRALCFM', 'IRMJFM']
+missing_ratio = data.isnull().mean()
+to_drop = [col for col in missing_ratio[missing_ratio > 0.4].index if col not in imp_cols]
+data.drop(columns=to_drop, inplace=True)
+print(f"\nDropped columns with >40% missing (excluding targets): {to_drop}")
+# Reason: Used this method instead of the one below, to avoid dropping target variables.
+
+'''
+# Dropping columns with >40% missing data (including target variables)
+missing_ratio = data.isnull().mean()
+to_drop = missing_ratio[missing_ratio > 0.4].index
+data.drop(columns=to_drop, inplace=True)
+print(f"\nDropped columns with >40% missing: {list(to_drop)}") '''
+
+# Dropping the logically contradicting rows
+if 'IRMJEVER' in data.columns and 'IRMJFM' in data.columns:
+    data = data[~((data['IRMJEVER'] == 0) & (data['IRMJFM'].notna()))]
+
+if 'IRALCEVER' in data.columns and 'IRALCFM' in data.columns:
+    data = data[~((data['IRALCEVER'] == 0) & (data['IRALCFM'].notna()))]
+
+# Converting numerics to category (for categorical variables)
+for col in ['INCOME', 'SCHFELT']:
+    if col in data.columns:
+        data[col] = data[col].astype('category')
+
+# Unique values in selected variables (after cleaning)
+print("\nUnique values in selected variables (after cleaning):")
+for col in selected_cols:
+    if col in data.columns:
+        print(f"{col} ({len(data[col].unique())} values): {data[col].unique()}")
+
+# Final shape and missing count
+print("\nFinal dataset shape:", data.shape)
+print("Final total missing values:", data.isnull().sum().sum())
+
+
+# Binary Classification
+# Creating a binary classification target variable, whether the youth has ever used cigarettes or not 
+
+print("\n\n*Binary Classification*")
+print("\nTarget variable: CIG_USED\n(1: Used cigarettes, 0: Never used cigarettes)\n")
+
+binary_data = data.dropna(subset=['CIG_USED'])                                      # Dropping rows with NaN in CIG_USED
+
+print(binary_data['CIG_USED'].value_counts())
+print("\nFinal dataset shape for binary classification:", binary_data.shape)
+
+# Splitting the data into training and testing sets
+from sklearn.model_selection import train_test_split
+
+X = binary_data.drop(columns=['CIG_USED', 'IRCIGFM'])  # Drop target and raw frequency
+y = binary_data['CIG_USED']
+
+# One-hot encode categorical features if needed
+X = pd.get_dummies(X, drop_first=True)
+
+# Train-test split (80/20)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+
+print(f"\nTraining set shape: {X_train.shape}")
+print(f"Test set shape: {X_test.shape}")
+print(f"Target distribution in train:\n{y_train.value_counts(normalize=True)}")
+
+# Visual representation of the data
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+plt.figure(figsize=(6, 4))
+sns.countplot(x='CIG_USED', data=binary_data, palette='Set2')
+plt.xticks([0, 1], ['Non-User (0)', 'User (1)'])
+plt.title("Class Distribution: CIG_USED")
+plt.ylabel("Number of Respondents")
+plt.xlabel("Cigarette Use Status")
+plt.show()
+
+# Training the decision tree 
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
+
+
+clf = DecisionTreeClassifier(random_state=42, max_depth=5)             # Max depth can be adjusted
+clf.fit(X_train, y_train)                                              # Train the model
+y_pred = clf.predict(X_test)
+
+# Confusion matrix
+ConfusionMatrixDisplay.from_estimator(clf, X_test, y_test, display_labels=["Non-User", "User"], cmap='Blues')
+plt.title("Confusion Matrix")
+plt.show()
+
+# Classification report
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred, target_names=["Non-User", "User"]))
+
+# Decision tree visualization
+from sklearn.tree import plot_tree
+
+plt.figure(figsize=(24, 10))  # You can adjust size
+plot_tree(clf,
+          feature_names=X_train.columns,
+          class_names=["Non-User", "User"],
+          filled=True,
+          rounded=True,
+          fontsize=8)
+plt.title("Decision Tree for Cigarette Use (Binary Classification)")
+plt.show()
+
+# ROC (Receiver Operating Characteristic) curve 
+from sklearn.metrics import roc_curve, auc
+
+# Predicting probabilities for the positive class (if user = 1)
+y_proba = clf.predict_proba(X_test)[:, 1]
+
+# Values
+fpr, tpr, thresholds = roc_curve(y_test, y_proba)
+roc_auc = auc(fpr, tpr)
+
+# Plot
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, label=f"ROC Curve (AUC = {roc_auc:.2f})", color='darkorange')
+plt.plot([0, 1], [0, 1], 'k--', label="Random Classifier")
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve - Binary Classification")
+plt.legend(loc="lower right")
+plt.grid(True)
+plt.show()
+'''Used this plot to check for the trade-off between true positive and false positive rate at different thresholds.
+This helps in understanding the model's performance and selecting an optimal threshold for classification.'''
+
+
+# Multi-Class Classification
+print("\n\n*Multi-Class Classification*") 
+
+# Cleaning and preparing the data for multi-class classification
+multi_data = data.copy()
+
+multi_data = multi_data[~multi_data['IRMJFM'].isin([91, 93, 94, 97, 98, 99])]
+
+# Convert to categorical for classification
+multi_data['marij_use'] = multi_data['IRMJFM'].astype('category')
+
+# Check classes
+print("Unique values in 'marij_use' (multi-class target):\n", sorted(multi_data['marij_use'].unique()))
+
+# Frequency distribution
+print("\nMarijuana Use Frequency Distribution (before grouping):")
+print(multi_data['marij_use'].value_counts())
+
+# Grouping the data for better interpretation 
+def categorize_mj_use(x):
+    if x <= 5:
+        return "Low"
+    elif 6 <= x <= 15:
+        return "Moderate"
+    elif 16 <= x <= 25:
+        return "Frequent"
+    elif x > 25:
+        return "Very Frequent"
+    else:
+        return np.nan
+
+multi_data['marij_use'] = multi_data['IRMJFM'].apply(categorize_mj_use)
+multi_data['marij_use'] = multi_data['marij_use'].astype('category')
+
+# Ranges for marijuana use frequency                        
+print("\nRanges for marijuana use frequency:")                          # For better reference/understanding
+print("Low: 0-5 days")
+print("Moderate: 6-15 days")
+print("Frequent: 16-25 days") 
+print("Very Frequent: >25 days")
+
+print("\nMarijuana Use Frequency Distribution (after grouping):")
+print(multi_data['marij_use'].value_counts())
+
+# One-Hot encoding categorical features for further analysis
+
+# Separating features from target
+multi_data = multi_data.dropna(subset=['marij_use'])                    # Dropping rows with NaN in marij_use
+
+X = multi_data.drop(columns=['marij_use'])
+y = multi_data['marij_use']
+
+# Getting categorical features (like gender, race, etc.)
+X_encoded = pd.get_dummies(X)
+
+# Train-Test split
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X_encoded, y, test_size=0.2, random_state=42, stratify=y)
+
+print("\nTrain shape:", X_train.shape)
+print("Test shape:", X_test.shape)
+print("\nTarget distribution in train:\n", y_train.value_counts(normalize=True))
+
+# Training the Multi-Class Decision Tree Classifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import classification_report, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+
+clf_multi = DecisionTreeClassifier(max_depth=5, random_state=42)
+clf_multi.fit(X_train, y_train)
+y_pred_multi = clf_multi.predict(X_test)
+
+print("\nClassification Report (Multi-Class):")
+print(classification_report(y_test, y_pred_multi))
+
+# Confusion Matrix
+disp = ConfusionMatrixDisplay.from_predictions(y_test, y_pred_multi, cmap="Blues", xticks_rotation=45)
+plt.title("Confusion Matrix - Marijuana Use Frequency")
+plt.tight_layout()
+plt.show()
+
+# Visualising the Decision Tree
+from sklearn.tree import plot_tree
+
+plt.figure(figsize=(20, 10))
+plot_tree(clf_multi, 
+          feature_names=X_train.columns, 
+          class_names=clf_multi.classes_, 
+          filled=True, 
+          rounded=True, 
+          fontsize=10)
+plt.title("Decision Tree - Marijuana Use Frequency")
+plt.tight_layout()
+plt.show()
+
+
+# Regression 
+print("\n\n*Regression*")
+
+# Cleaning and preparing the data for regression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+
+regression_data = data.dropna(subset=['ALCYDAYS']).copy()               # Dropping rows with NaN in ALCYDAYS
+
+X = regression_data.drop(columns=['ALCYDAYS'])
+y = regression_data['ALCYDAYS']
+
+X_encoded = pd.get_dummies(X, drop_first=True)
+
+# Train-Test data  split
+X_train, X_test, y_train, y_test = train_test_split(X_encoded, y, test_size=0.2, random_state=42)
+
+print("\nTrain shape:", X_train.shape)
+print("Test shape:", X_test.shape)
+print("\nTarget distribution in train:\n", y_train.describe())
+
+# Regression Models
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+import matplotlib.pyplot as plt
+
+# Decision Tree Regressor
+reg_tree = DecisionTreeRegressor(max_depth=5, random_state=42)
+reg_tree.fit(X_train, y_train)
+y_pred_tree = reg_tree.predict(X_test)
+
+# Evaluation metrics
+mse_tree = mean_squared_error(y_test, y_pred_tree)
+r2_tree = r2_score(y_test, y_pred_tree)
+print("\nDecision Tree Regression Results:")
+print(f"MSE: {mse_tree:.4f}")
+print(f"R^2 Score: {r2_tree:.4f}")
+
+# Plotting true vs predicted values for Decision Tree
+plt.figure(figsize=(8, 5))
+plt.scatter(y_test, y_pred_tree, alpha=0.5, color='teal')
+plt.plot([y.min(), y.max()], [y.min(), y.max()], 'r--')
+plt.xlabel("Actual ALCYDAYS")
+plt.ylabel("Predicted ALCYDAYS")
+plt.title("Decision Tree Regression: Actual vs Predicted")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+from sklearn.impute import SimpleImputer
+
+# Impute missing values with mean
+imputer = SimpleImputer(strategy='mean')
+X_train_imputed = imputer.fit_transform(X_train)
+X_test_imputed = imputer.transform(X_test)
+
+# Linear Regression
+lin_reg = LinearRegression()
+lin_reg.fit(X_train_imputed, y_train)
+y_pred_lin = lin_reg.predict(X_test_imputed)
+
+
+# Evaluation metrics for Linear Regression
+mse_lin = mean_squared_error(y_test, y_pred_lin)
+r2_lin = r2_score(y_test, y_pred_lin)
+print("\nLinear Regression Results:")
+print(f"MSE: {mse_lin:.4f}")
+print(f"R^2 Score: {r2_lin:.4f}")
+
+# Plotting true vs predicted values for Linear Regression
+plt.figure(figsize=(8, 5))
+plt.scatter(y_test, y_pred_lin, alpha=0.5, color='orange')
+plt.plot([y.min(), y.max()], [y.min(), y.max()], 'b--')
+plt.xlabel("Actual ALCYDAYS")
+plt.ylabel("Predicted ALCYDAYS")
+plt.title("Linear Regression: Actual vs Predicted")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Random Forest Regression
+from sklearn.ensemble import RandomForestRegressor
+
+rf_reg = RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42)
+rf_reg.fit(X_train_imputed, y_train)
+y_pred_rf = rf_reg.predict(X_test_imputed)
+
+# Evaluation metrics
+mse_rf = mean_squared_error(y_test, y_pred_rf)
+r2_rf = r2_score(y_test, y_pred_rf)
+print("\nRandom Forest Regression Results:")
+print(f"MSE: {mse_rf:.4f}")
+print(f"R^2 Score: {r2_rf:.4f}")
+
+# Plotting true vs predicted values
+plt.figure(figsize=(8, 5))
+plt.scatter(y_test, y_pred_rf, alpha=0.5, color='purple')
+plt.plot([y.min(), y.max()], [y.min(), y.max()], 'r--')
+plt.xlabel("Actual ALCYDAYS")
+plt.ylabel("Predicted ALCYDAYS")
+plt.title("Random Forest Regression: Actual vs Predicted")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+'''From the results of Decision Tree and Random Forest Regression, we can conclude that they are both overfitting, but can work well here because we're just showing the use of models for the dataset'''
