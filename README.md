@@ -4,9 +4,9 @@
 This project investigates patterns of substance use among youth under the age of 18 using the 2023 National Survey on Drug Use and Health (NSDUH) dataset. The objective is to build interpretable machine learning models that can help identify key behavioral, emotional, and demographic factors associated with the use of alcohol, marijuana, and cigarettes.
 
 ## Objectives
-•	Predict youth drug use behavior using decision tree-based models.
-•	Identify significant predictors of substance use, including emotional and social factors.
-•	Provide interpretable insights to support early intervention and policy recommendations.
+Predict youth drug use behavior using decision tree-based models.
+Identify significant predictors of substance use, including emotional and social factors.
+Provide interpretable insights to support early intervention and policy recommendations.
 
 ## Models Implemented
 •	Binary Classification: Predict whether a youth has ever used cigarettes (CIG_USED)
